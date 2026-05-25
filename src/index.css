@@ -1,0 +1,208 @@
+@import "tailwindcss";
+
+/* ============================================================
+   CineGen Director — Editorial Cinema Atelier
+   Aesthetic: ink-black darkroom + champagne film-leader amber
+   + director-red punctuation. Serif display, mono technical.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Geist:wght@300..700&family=Geist+Mono:wght@300..600&display=swap');
+
+@theme {
+  --color-ink-950: #08080a;
+  --color-ink-900: #0c0c10;
+  --color-ink-850: #111116;
+  --color-ink-800: #16161d;
+  --color-ink-700: #1d1d26;
+  --color-ink-600: #262631;
+  --color-ink-500: #3a3a47;
+
+  --color-paper-50:  #f5f1e8;
+  --color-paper-100: #ece6d6;
+  --color-paper-200: #d9d2bf;
+  --color-paper-400: #8b8676;
+  --color-paper-500: #6b6757;
+  --color-paper-600: #4a4738;
+
+  --color-amber-leader: #d4a574;
+  --color-amber-glow:   #e8c896;
+  --color-amber-deep:   #a87d4a;
+
+  --color-crimson-mark: #c8392c;
+  --color-crimson-deep: #8a2820;
+
+  --font-display: 'Fraunces', 'Times New Roman', serif;
+  --font-sans:    'Geist', system-ui, sans-serif;
+  --font-mono:    'Geist Mono', 'Courier New', monospace;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-ink-950);
+    color: var(--color-paper-100);
+    font-feature-settings: "ss01", "ss02", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Custom scrollbar — minimal, like a film strip edge */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 0;
+    border: 3px solid var(--color-ink-950);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-amber-deep); }
+
+  ::selection { background: var(--color-amber-leader); color: var(--color-ink-950); }
+
+  /* Disable focus ring globally — we draw our own */
+  *:focus { outline: none; }
+  *:focus-visible {
+    outline: 1px solid var(--color-amber-leader);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Atmospheric film-grain noise overlay — applied to body background */
+  .grain-bg {
+    position: relative;
+    background-color: var(--color-ink-950);
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(212, 165, 116, 0.06), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(200, 57, 44, 0.04), transparent 60%);
+  }
+  .grain-bg::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.4;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.83 0 0 0 0 0.65 0 0 0 0 0.46 0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .display { font-family: var(--font-display); font-optical-sizing: auto; letter-spacing: -0.02em; }
+  .mono { font-family: var(--font-mono); font-feature-settings: "ss01", "ss02"; }
+
+  /* Editorial divider line with serial-number marks */
+  .rule {
+    border-top: 1px solid var(--color-ink-600);
+    position: relative;
+  }
+  .rule::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: 0;
+    width: 24px;
+    border-top: 1px solid var(--color-amber-leader);
+  }
+
+  /* Button — refined, film-clapper inspired */
+  .btn-amber {
+    background: var(--color-amber-leader);
+    color: var(--color-ink-950);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.7rem 1.4rem;
+    transition: transform 120ms ease, background 120ms ease, box-shadow 200ms ease;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  .btn-amber:hover:not(:disabled) {
+    background: var(--color-amber-glow);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px -12px rgba(212, 165, 116, 0.6);
+  }
+  .btn-amber:active { transform: translateY(0); }
+  .btn-amber:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-paper-200);
+    border: 1px solid var(--color-ink-500);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.65rem 1.2rem;
+    transition: border-color 120ms, color 120ms, background 120ms;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    border-color: var(--color-amber-leader);
+    color: var(--color-amber-glow);
+    background: rgba(212, 165, 116, 0.04);
+  }
+
+  /* Card surface */
+  .surface {
+    background: var(--color-ink-850);
+    border: 1px solid var(--color-ink-600);
+  }
+  .surface-raised {
+    background: linear-gradient(180deg, var(--color-ink-800) 0%, var(--color-ink-900) 100%);
+    border: 1px solid var(--color-ink-600);
+  }
+
+  /* Marquee tick / status indicator */
+  .tick {
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: var(--color-paper-500);
+    display: inline-block;
+  }
+  .tick-active { background: var(--color-amber-leader); box-shadow: 0 0 12px var(--color-amber-leader); }
+  .tick-done { background: var(--color-amber-deep); }
+  .tick-locked { background: var(--color-ink-500); }
+  .tick-rec { background: var(--color-crimson-mark); animation: pulse-rec 1.6s ease-in-out infinite; }
+
+  @keyframes pulse-rec {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(200, 57, 44, 0.5); }
+    50%      { opacity: 0.6; box-shadow: 0 0 0 6px rgba(200, 57, 44, 0); }
+  }
+
+  /* Reveal animations */
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slit { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+  .reveal-rise { animation: rise 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .reveal-fade { animation: fade 800ms ease both; }
+  .reveal-slit { animation: slit 700ms cubic-bezier(0.7, 0, 0.3, 1) both; }
+
+  /* Input — editorial form */
+  .field {
+    background: var(--color-ink-900);
+    border: 1px solid var(--color-ink-600);
+    color: var(--color-paper-100);
+    font-family: var(--font-sans);
+    padding: 0.75rem 1rem;
+    transition: border-color 150ms;
+  }
+  .field:focus { border-color: var(--color-amber-leader); }
+  .field::placeholder { color: var(--color-paper-500); font-style: italic; }
+
+  /* Label tag */
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-paper-500);
+  }
+
+  /* Phase number — large editorial numeral */
+  .phase-numeral {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-style: italic;
+    font-variation-settings: 'opsz' 144, 'SOFT' 60;
+    letter-spacing: -0.04em;
+  }
+}

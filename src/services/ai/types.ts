@@ -40,14 +40,15 @@ export interface ImageAIService {
 // ===== 视频AI服务 =====
 export interface VideoParams {
   prompt: string
-  imageUrl?: string
-  duration?: number
-  aspectRatio?: string
+  imageUrl?: string       // 图生视频的参考图
+  endImageUrl?: string    // 首尾帧插值用的尾帧
+  duration?: number       // 秒
+  aspectRatio?: string    // "16:9" | "9:16" | "1:1"
 }
 
 export interface VideoStatus {
   state: 'pending' | 'processing' | 'completed' | 'failed'
-  progress?: number
+  progress?: number       // 0-100
   resultUrl?: string
   error?: string
 }

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { useProject } from '@/shared/contexts/ProjectContext'
 import { useImageAI, useVideoAI } from '@/shared/hooks/useAI'
-import { hasApiKey } from '@/config'
+import { hasAnyApiKey } from '@/config'
 import { PhaseHeader } from '@/shared/components/PhaseHeader'
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner'
 import type { Project, Scene, Shot, KeyframeData } from '@/types'
@@ -111,7 +111,7 @@ export function DirectorPhase() {
   const generateKeyframe = useCallback(
     async (entry: ShotEntry) => {
       if (!project) return
-      if (!hasApiKey()) {
+      if (!hasAnyApiKey()) {
         throw new Error('请先在「模型配置」中配置 API Key')
       }
       const prompt = buildShotPrompt(project, entry.scene, entry.shot)
@@ -128,7 +128,7 @@ export function DirectorPhase() {
   const generateVideo = useCallback(
     async (entry: ShotEntry) => {
       if (!project) return
-      if (!hasApiKey()) {
+      if (!hasAnyApiKey()) {
         throw new Error('请先在「模型配置」中配置 API Key')
       }
       const keyframe = project.director.keyframes[entry.shot.id]
@@ -261,7 +261,7 @@ export function DirectorPhase() {
     return s === 'pending' || s === 'processing'
   }).length
 
-  const noApiKey = !hasApiKey()
+  const noApiKey = !hasAnyApiKey()
 
   // Group entries by scene for render
   const grouped = project.script.scenes.map((scene, sIdx) => ({

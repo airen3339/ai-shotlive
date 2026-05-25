@@ -18,7 +18,7 @@ import type { Phase } from '@/types'
 import { useProject } from '@/shared/contexts/ProjectContext'
 import { workflowEngine } from '@/services/workflow'
 import { ApiKeyModal } from '@/shared/components/ApiKeyModal'
-import { hasApiKey } from '@/config'
+import { hasAnyApiKey } from '@/config'
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner'
 
 interface PhaseMeta {
@@ -42,7 +42,7 @@ export function Sidebar() {
     closeProject, isSaving,
   } = useProject()
   const [apiOpen, setApiOpen] = useState(false)
-  const [apiConfigured, setApiConfigured] = useState(hasApiKey())
+  const [apiConfigured, setApiConfigured] = useState(hasAnyApiKey())
 
   if (!project) return null
 
@@ -206,7 +206,7 @@ export function Sidebar() {
         open={apiOpen}
         onClose={() => {
           setApiOpen(false)
-          setApiConfigured(hasApiKey())
+          setApiConfigured(hasAnyApiKey())
         }}
       />
     </aside>

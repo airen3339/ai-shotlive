@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useProject } from '@/shared/contexts/ProjectContext'
 import { ApiKeyModal, loadApiKeyFromStorage } from '@/shared/components/ApiKeyModal'
-import { hasApiKey } from '@/config'
+import { hasAnyApiKey } from '@/config'
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner'
 
 function formatDate(ts: number) {
@@ -35,7 +35,7 @@ export function ProjectSelector() {
 
   useEffect(() => {
     loadApiKeyFromStorage().then(() => {
-      setApiReady(hasApiKey())
+      setApiReady(hasAnyApiKey())
       refreshList()
     })
   }, [refreshList])
@@ -294,7 +294,7 @@ export function ProjectSelector() {
         open={apiOpen}
         onClose={() => {
           setApiOpen(false)
-          setApiReady(hasApiKey())
+          setApiReady(hasAnyApiKey())
         }}
       />
     </div>

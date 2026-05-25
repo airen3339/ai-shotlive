@@ -1,11 +1,10 @@
 /**
- * DashScope (阿里云通义/万相) AI 服务适配器
+ * DashScope (阿里云百炼) AI 服务适配器
  * 控制论"开放系统设计"：实现统一接口契约，封装厂商差异
  *
- * 包含：
- *  - 文本：Qwen-Plus（OpenAI兼容模式，同步调用）
- *  - 图像：万相 wanx-v1（异步任务 + 轮询）
- *  - 视频：万象 wanx-video-v1（异步任务 + 轮询）
+ * 文本：Qwen 系列（OpenAI 兼容模式，同步调用）
+ * 图像：万相 wanx2.1 / FLUX 等（OpenAI 兼容模式，异步任务 + 轮询）
+ * 视频：通义万相视频生成（原生 API，异步任务 + 轮询）
  */
 
 import { getConfig } from '@/config'
@@ -27,7 +26,7 @@ import type {
 const COMPATIBLE_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 const NATIVE_BASE = 'https://dashscope.aliyuncs.com/api/v1'
 const POLL_INTERVAL_MS = 3000
-const MAX_WAIT_MS = 5 * 60 * 1000 // 5 分钟
+const MAX_WAIT_MS = 10 * 60 * 1000 // 10 分钟
 const MAX_RETRIES = 3
 const RETRY_BACKOFF_MS = 1000
 
@@ -36,10 +35,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function requireApiKey(): string {
-  const key = getConfig().ai.apiKey
+function requireApiKey(key: string, section: string): string {
   if (!key) {
-    throw new DashScopeError('未配置 API Key，请先在「模型配置」中设置 DashScope API Key', 'AUTH_MISSING')
+    throw new DashScopeError(
+      `未配置 ${section} API Key，请在设置中配置百炼 API Key`,
+      'AUTH_MISSING',
+    )
   }
   return key
 }
@@ -68,7 +69,11 @@ async function fetchWithRetry(input: string, init: RequestInit): Promise<Respons
       if (!res.ok) {
         const text = await res.text().catch(() => '')
         const code =
-          res.status === 401 ? 'AUTH_INVALID' : res.status === 429 ? 'QUOTA_EXCEEDED' : 'CLIENT_ERROR'
+          res.status === 401
+            ? 'AUTH_INVALID'
+            : res.status === 429
+              ? 'QUOTA_EXCEEDED'
+              : 'CLIENT_ERROR'
         const friendly =
           res.status === 401
             ? 'API Key 无效或已过期'
@@ -95,8 +100,8 @@ async function fetchWithRetry(input: string, init: RequestInit): Promise<Respons
 // ===== 文本服务 =====
 export class DashScopeTextService implements TextAIService {
   async generateText(prompt: string, options?: TextOptions): Promise<TextResult> {
-    const apiKey = requireApiKey()
-    const cfg = getConfig().ai
+    const cfg = getConfig().text
+    const apiKey = requireApiKey(cfg.apiKey, '文本模型')
     const baseUrl = cfg.baseUrl || COMPATIBLE_BASE
 
     const messages: Array<{ role: string; content: string }> = []
@@ -106,10 +111,10 @@ export class DashScopeTextService implements TextAIService {
     messages.push({ role: 'user', content: prompt })
 
     const body = {
-      model: cfg.textModel,
+      model: 'qwen-plus',
       messages,
       temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 2000,
+      max_tokens: options?.maxTokens ?? 4096,
     }
 
     const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
@@ -138,47 +143,164 @@ export class DashScopeTextService implements TextAIService {
   }
 }
 
-// ===== 异步任务轮询通用逻辑 =====
-interface AsyncTaskResponse {
-  output?: {
-    task_id?: string
-    task_status?: string
-    results?: Array<{ url?: string; orig_prompt?: string; actual_prompt?: string }>
-    video_url?: string
-    message?: string
+// ===== 图像服务 =====
+export class DashScopeImageService implements ImageAIService {
+  async generateImage(prompt: string, options?: ImageOptions): Promise<ImageResult> {
+    const cfg = getConfig().image
+    const apiKey = requireApiKey(cfg.apiKey, '图像模型')
+    const baseUrl = cfg.baseUrl || COMPATIBLE_BASE
+    const width = options?.width ?? 1024
+    const height = options?.height ?? 1024
+
+    // 使用 OpenAI 兼容模式调用图像生成
+    const body = {
+      model: cfg.provider === 'dashscope' ? 'wanx2.1-t2i-turbo' : 'wanx2.1-t2i-turbo',
+      prompt,
+      n: options?.count ?? 1,
+      size: `${width}x${height}`,
+      ...(options?.negativePrompt ? { negative_prompt: options.negativePrompt } : {}),
+    }
+
+    const res = await fetchWithRetry(`${baseUrl}/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+      },
+      body: JSON.stringify(body),
+    })
+
+    const data = await res.json()
+
+    // OpenAI 兼容模式可能直接返回 data 数组
+    if (data?.data?.[0]?.url) {
+      return {
+        url: data.data[0].url,
+        revisedPrompt: data.data[0].revised_prompt,
+      }
+    }
+
+    // 异步任务模式
+    const taskId = data?.output?.task_id ?? data?.id
+    if (taskId) {
+      return this.pollImageTask(taskId, apiKey)
+    }
+
+    throw new DashScopeError('图像任务提交失败', 'TASK_SUBMIT_FAILED')
   }
-  request_id?: string
-  code?: string
-  message?: string
+
+  private async pollImageTask(taskId: string, apiKey: string): Promise<ImageResult> {
+    const start = Date.now()
+    while (Date.now() - start < MAX_WAIT_MS) {
+      const res = await fetchWithRetry(`${NATIVE_BASE}/tasks/${taskId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+      const data = await res.json()
+      const rawStatus = data?.output?.task_status ?? data?.status
+
+      if (rawStatus === 'SUCCEEDED' || rawStatus === 'completed') {
+        const url =
+          data?.output?.results?.[0]?.url ??
+          data?.output?.video_url ??
+          data?.data?.[0]?.url
+        if (!url) {
+          throw new DashScopeError('任务完成但未返回 URL', 'EMPTY_RESPONSE')
+        }
+        return {
+          url,
+          revisedPrompt: data?.output?.results?.[0]?.actual_prompt,
+        }
+      }
+
+      if (rawStatus === 'FAILED' || rawStatus === 'failed') {
+        throw new DashScopeError(
+          `图像任务失败: ${data?.output?.message ?? data?.message ?? '未知错误'}`,
+          'TASK_FAILED',
+        )
+      }
+
+      await sleep(POLL_INTERVAL_MS)
+    }
+    throw new DashScopeError(`图像任务超时（>${MAX_WAIT_MS / 1000}s）`, 'TASK_TIMEOUT')
+  }
 }
 
-async function submitAsyncTask(url: string, body: unknown, apiKey: string): Promise<string> {
-  const res = await fetchWithRetry(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'X-DashScope-Async': 'enable',
-    },
-    body: JSON.stringify(body),
-  })
-  const data = (await res.json()) as AsyncTaskResponse
-  const taskId = data?.output?.task_id
-  if (!taskId) {
-    throw new DashScopeError(
-      `提交异步任务失败: ${data?.message ?? '未返回 task_id'}`,
-      'TASK_SUBMIT_FAILED'
-    )
-  }
-  return taskId
-}
+// ===== 视频服务（百炼端保留，实际主用火山引擎） =====
+export class DashScopeVideoService implements VideoAIService {
+  async generateVideo(params: VideoParams): Promise<VideoResult> {
+    const cfg = getConfig().video
+    const apiKey = requireApiKey(cfg.apiKey, '视频模型')
 
-async function queryTask(taskId: string, apiKey: string): Promise<AsyncTaskResponse> {
-  const res = await fetchWithRetry(`${NATIVE_BASE}/tasks/${taskId}`, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
-  })
-  return (await res.json()) as AsyncTaskResponse
+    const body: Record<string, unknown> = {
+      model: 'wanx2.1-t2v-turbo',
+      input: {
+        prompt: params.prompt,
+        ...(params.imageUrl ? { img_url: params.imageUrl } : {}),
+      },
+      parameters: {
+        ...(params.duration ? { duration: params.duration } : {}),
+        ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
+      },
+    }
+
+    const res = await fetchWithRetry(`${NATIVE_BASE}/services/aigc/video-generation/video-synthesis`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+      },
+      body: JSON.stringify(body),
+    })
+
+    const data = await res.json()
+    const taskId = data?.output?.task_id ?? data?.id
+    if (!taskId) {
+      throw new DashScopeError(
+        `提交异步任务失败: ${data?.message ?? '未返回 task_id'}`,
+        'TASK_SUBMIT_FAILED',
+      )
+    }
+
+    return {
+      taskId,
+      status: { state: 'pending' },
+    }
+  }
+
+  async checkStatus(taskId: string): Promise<VideoStatus> {
+    const cfg = getConfig().video
+    const apiKey = requireApiKey(cfg.apiKey, '视频模型')
+
+    const res = await fetchWithRetry(`${NATIVE_BASE}/tasks/${taskId}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    const data = await res.json()
+    const state = mapTaskStatus(data?.output?.task_status)
+
+    if (state === 'completed') {
+      const url =
+        data?.output?.video_url ??
+        data?.output?.results?.[0]?.url ??
+        undefined
+      if (!url) {
+        return { state: 'failed', error: '任务完成但未返回视频 URL' }
+      }
+      return { state, resultUrl: url, progress: 100 }
+    }
+
+    if (state === 'failed') {
+      return {
+        state,
+        error: data?.output?.message ?? data?.message ?? '视频生成失败',
+      }
+    }
+
+    return { state, progress: state === 'processing' ? 50 : 0 }
+  }
 }
 
 function mapTaskStatus(raw: string | undefined): VideoStatus['state'] {
@@ -198,127 +320,11 @@ function mapTaskStatus(raw: string | undefined): VideoStatus['state'] {
   }
 }
 
-async function pollUntilDone(taskId: string, apiKey: string): Promise<AsyncTaskResponse> {
-  const start = Date.now()
-  while (Date.now() - start < MAX_WAIT_MS) {
-    const data = await queryTask(taskId, apiKey)
-    const state = mapTaskStatus(data?.output?.task_status)
-    if (state === 'completed') return data
-    if (state === 'failed') {
-      throw new DashScopeError(
-        `任务失败: ${data?.output?.message ?? data?.message ?? '未知错误'}`,
-        'TASK_FAILED'
-      )
-    }
-    await sleep(POLL_INTERVAL_MS)
-  }
-  throw new DashScopeError(`任务超时（>${MAX_WAIT_MS / 1000}s）`, 'TASK_TIMEOUT')
-}
-
-// ===== 图像服务 =====
-export class DashScopeImageService implements ImageAIService {
-  async generateImage(prompt: string, options?: ImageOptions): Promise<ImageResult> {
-    const apiKey = requireApiKey()
-    const cfg = getConfig().ai
-    const width = options?.width ?? 1024
-    const height = options?.height ?? 1024
-
-    const body = {
-      model: cfg.imageModel,
-      input: {
-        prompt,
-        ...(options?.negativePrompt ? { negative_prompt: options.negativePrompt } : {}),
-      },
-      parameters: {
-        size: `${width}*${height}`,
-        n: options?.count ?? 1,
-        ...(options?.style ? { style: options.style } : {}),
-      },
-    }
-
-    const taskId = await submitAsyncTask(
-      `${NATIVE_BASE}/services/aigc/text2image/image-synthesis`,
-      body,
-      apiKey
-    )
-
-    const result = await pollUntilDone(taskId, apiKey)
-    const item = result?.output?.results?.[0]
-    if (!item?.url) {
-      throw new DashScopeError('图像任务完成但未返回 URL', 'EMPTY_RESPONSE')
-    }
-    return {
-      url: item.url,
-      revisedPrompt: item.actual_prompt ?? item.orig_prompt,
-    }
-  }
-}
-
-// ===== 视频服务 =====
-export class DashScopeVideoService implements VideoAIService {
-  async generateVideo(params: VideoParams): Promise<VideoResult> {
-    const apiKey = requireApiKey()
-    const cfg = getConfig().ai
-
-    const body: Record<string, unknown> = {
-      model: cfg.videoModel,
-      input: {
-        prompt: params.prompt,
-        ...(params.imageUrl ? { img_url: params.imageUrl } : {}),
-      },
-      parameters: {
-        ...(params.duration ? { duration: params.duration } : {}),
-        ...(params.aspectRatio ? { aspect_ratio: params.aspectRatio } : {}),
-      },
-    }
-
-    const taskId = await submitAsyncTask(
-      `${NATIVE_BASE}/services/aigc/video-generation/video-synthesis`,
-      body,
-      apiKey
-    )
-
-    // 立即返回 taskId，调用方可通过 checkStatus 自行轮询，
-    // 也可使用本服务内部的 waitFor 方法（如未提供则由调用层管理）
-    return {
-      taskId,
-      status: { state: 'pending' },
-    }
-  }
-
-  async checkStatus(taskId: string): Promise<VideoStatus> {
-    const apiKey = requireApiKey()
-    const data = await queryTask(taskId, apiKey)
-    const state = mapTaskStatus(data?.output?.task_status)
-
-    if (state === 'completed') {
-      const url =
-        data?.output?.video_url ?? data?.output?.results?.[0]?.url ?? undefined
-      if (!url) {
-        return {
-          state: 'failed',
-          error: '任务完成但未返回视频 URL',
-        }
-      }
-      return { state, resultUrl: url, progress: 100 }
-    }
-
-    if (state === 'failed') {
-      return {
-        state,
-        error: data?.output?.message ?? data?.message ?? '视频生成失败',
-      }
-    }
-
-    return { state, progress: state === 'processing' ? 50 : 0 }
-  }
-}
-
 // ===== Provider 工厂 =====
 export function createDashScopeProvider(): ModelProvider {
   return {
     id: 'dashscope',
-    name: 'DashScope (阿里云)',
+    name: '百炼 (DashScope)',
     textService: new DashScopeTextService(),
     imageService: new DashScopeImageService(),
     videoService: new DashScopeVideoService(),

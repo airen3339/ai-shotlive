@@ -1,16 +1,16 @@
 /**
  * ProjectSelector — 进入应用的"片场入口"
  *   左：编辑室简介 / 标题 + 新建项目；右：已有项目档案。
- *   若 API Key 未配置，顶部显眼提示。
+ *   若 Provider 未配置，顶部显眼提示。
  */
 import { useEffect, useState } from 'react'
 import {
   ArrowRight, Plus, Trash2, FolderOpen,
-  KeyRound, Sparkle,
+  Sparkle, Settings,
 } from 'lucide-react'
 import { useProject } from '@/shared/contexts/ProjectContext'
-import { ApiKeyModal, loadApiKeyFromStorage } from '@/shared/components/ApiKeyModal'
-import { hasAnyApiKey } from '@/config'
+import { SettingsPanel } from '@/components/SettingsPanel'
+import { providerManager } from '@/providers'
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner'
 
 function formatDate(ts: number) {
@@ -30,12 +30,14 @@ export function ProjectSelector() {
   const { projectList, createProject, loadProject, deleteProject, isLoading, refreshList } = useProject()
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
-  const [apiOpen, setApiOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [apiReady, setApiReady] = useState(false)
 
   useEffect(() => {
-    loadApiKeyFromStorage().then(() => {
-      setApiReady(hasAnyApiKey())
+    providerManager.init().then(() => {
+      setApiReady(providerManager.isReady())
+      refreshList()
+    }).catch(() => {
       refreshList()
     })
   }, [refreshList])
@@ -111,27 +113,27 @@ export function ProjectSelector() {
           </aside>
         </header>
 
-        {/* ==== API Key warning if missing ==== */}
+        {/* ==== Provider warning if missing ==== */}
         {!apiReady && (
           <div className="surface-raised mb-10 px-6 py-5 flex items-center justify-between gap-6 reveal-rise"
                style={{ borderColor: 'var(--color-crimson-deep)', animationDelay: '300ms' }}>
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 flex items-center justify-center"
                    style={{ background: 'rgba(200, 57, 44, 0.12)', border: '1px solid var(--color-crimson-deep)' }}>
-                <KeyRound size={16} strokeWidth={1.5} style={{ color: 'var(--color-crimson-mark)' }} />
+                <Settings size={16} strokeWidth={1.5} style={{ color: 'var(--color-crimson-mark)' }} />
               </div>
               <div>
                 <div className="mono text-[0.7rem] tracking-[0.2em] uppercase mb-0.5"
                      style={{ color: 'var(--color-crimson-mark)' }}>
-                  CREDENTIALS REQUIRED
+                  MODEL CONFIG REQUIRED
                 </div>
                 <div className="text-sm" style={{ color: 'var(--color-paper-200)' }}>
-                  在开始之前，请配置 DashScope API Key。
+                  请先配置 AI 模型（百炼/火山引擎/自定义端点）。
                 </div>
               </div>
             </div>
-            <button onClick={() => setApiOpen(true)} className="btn-amber">
-              配置密钥
+            <button onClick={() => setSettingsOpen(true)} className="btn-amber">
+              配置模型
             </button>
           </div>
         )}
@@ -170,7 +172,7 @@ export function ProjectSelector() {
 
               <button
                 onClick={handleCreate}
-                disabled={!name.trim() || creating || !apiReady}
+                disabled={!name.trim() || creating}
                 className="btn-amber mt-6 w-full flex items-center justify-center gap-3"
               >
                 {creating ? <LoadingSpinner size="sm" label="开机中" /> : (
@@ -185,7 +187,7 @@ export function ProjectSelector() {
               {!apiReady && (
                 <div className="mt-3 mono text-[0.65rem] tracking-[0.18em] uppercase text-center"
                      style={{ color: 'var(--color-crimson-mark)' }}>
-                  请先完成 API 配置
+                  请先完成模型配置
                 </div>
               )}
             </div>
@@ -280,23 +282,17 @@ export function ProjectSelector() {
                 style={{ color: 'var(--color-paper-500)' }}>
           <span>CineGen Director · Local-first · IndexedDB</span>
           <button
-            onClick={() => setApiOpen(true)}
+            onClick={() => setSettingsOpen(true)}
             className="hover:text-amber-glow transition-colors flex items-center gap-2"
             style={{ color: apiReady ? 'var(--color-paper-500)' : 'var(--color-crimson-mark)' }}
           >
-            <KeyRound size={11} strokeWidth={1.5} />
-            API · {apiReady ? '已配置' : '未配置'}
+            <Settings size={11} strokeWidth={1.5} />
+            模型配置
           </button>
         </footer>
       </div>
 
-      <ApiKeyModal
-        open={apiOpen}
-        onClose={() => {
-          setApiOpen(false)
-          setApiReady(hasAnyApiKey())
-        }}
-      />
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

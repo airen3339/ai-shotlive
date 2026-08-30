@@ -1,31 +1,30 @@
 /**
- * AI 调用 Hook
- * 控制论"信息-反馈律"：统一暴露 loading/error，让 UI 感知调用过程
+ * AI 调用 Hook — 纯客户端渲染，所有 AI 调用通过服务端代理
  *
- * 每种 AI 能力（文本/图像/视频）独立调用各自的 provider 服务。
+ * 控制论"信息-反馈律"：
+ *   客户端提交任务 → 服务端执行 AI → 结果返回客户端
+ *   断连不影响服务端任务，重连后可查询状态
  */
 import { useCallback, useState } from 'react'
-import { hasApiKeyFor } from '@/config'
-import { getTextService, getImageService, getVideoService, resetProviders } from '@/services/ai'
-import type { ImageOptions, TextOptions, VideoParams } from '@/services/ai'
+import { ai } from '@/api/client'
+import type { TextOptions, ImageOptions, VideoParams } from '@/providers/types'
 
-export { resetProviders }
-
-function ensureKey(section: 'text' | 'image' | 'video') {
-  if (!hasApiKeyFor(section)) throw new Error(`请先配置 ${section === 'text' ? '文本' : section === 'image' ? '图像' : '视频'} API Key`)
-}
-
+// ===== 文本 AI =====
 export function useTextAI() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const generate = useCallback(
     async (prompt: string, options?: TextOptions) => {
-      ensureKey('text')
       setLoading(true)
       setError(null)
       try {
-        const result = await getTextService().generateText(prompt, options)
+        const result = await ai.chat({
+          prompt,
+          systemPrompt: options?.systemPrompt,
+          temperature: options?.temperature,
+          maxTokens: options?.maxTokens,
+        })
         return result.content
       } catch (e) {
         const msg = e instanceof Error ? e.message : '生成失败'
@@ -41,17 +40,22 @@ export function useTextAI() {
   return { generate, loading, error }
 }
 
+// ===== 图像 AI =====
 export function useImageAI() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const generate = useCallback(
     async (prompt: string, options?: ImageOptions) => {
-      ensureKey('image')
       setLoading(true)
       setError(null)
       try {
-        const result = await getImageService().generateImage(prompt, options)
+        const result = await ai.image({
+          prompt,
+          width: options?.width,
+          height: options?.height,
+          negativePrompt: options?.negativePrompt,
+        })
         return result
       } catch (e) {
         const msg = e instanceof Error ? e.message : '生成失败'
@@ -67,17 +71,23 @@ export function useImageAI() {
   return { generate, loading, error }
 }
 
+// ===== 视频 AI =====
 export function useVideoAI() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const submit = useCallback(
     async (params: VideoParams) => {
-      ensureKey('video')
       setLoading(true)
       setError(null)
       try {
-        const result = await getVideoService().generateVideo(params)
+        const result = await ai.video({
+          prompt: params.prompt,
+          imageUrl: params.imageUrl,
+          endImageUrl: params.endImageUrl,
+          duration: params.duration,
+          aspectRatio: params.aspectRatio,
+        })
         return result
       } catch (e) {
         const msg = e instanceof Error ? e.message : '提交失败'
@@ -91,7 +101,13 @@ export function useVideoAI() {
   )
 
   const checkStatus = useCallback(async (taskId: string) => {
-    return getVideoService().checkStatus(taskId)
+    const result = await ai.videoStatus(taskId)
+    return {
+      state: result.status as 'pending' | 'processing' | 'completed' | 'failed',
+      progress: result.progress,
+      resultUrl: result.resultUrl,
+      error: result.error,
+    }
   }, [])
 
   return { submit, checkStatus, loading, error }

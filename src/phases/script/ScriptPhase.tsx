@@ -3,7 +3,7 @@
  *   控制论"信息-反馈律"的第一个完整反馈环路：
  *     用户输入故事 → AI 拆解 → 展示结果 → 用户可编辑修正
  */
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   MapPin, Users, Film, Plus, Sparkles, CheckCircle2, AlertCircle,
 } from 'lucide-react'
@@ -12,6 +12,7 @@ import { useTextAI } from '@/shared/hooks/useAI'
 import { PhaseHeader } from '@/shared/components/PhaseHeader'
 import type { Character, Scene, Shot } from '@/types'
 import { StoryInput } from './components/StoryInput'
+import { NovelUploader } from './components/NovelUploader'
 import { SceneCard } from './components/SceneCard'
 import { CharacterCard } from './components/CharacterCard'
 
@@ -144,6 +145,7 @@ export function ScriptPhase() {
   const { project, updateProject, setPhase } = useProject()
   const { generate, loading, error } = useTextAI()
   const resultsRef = useRef<HTMLDivElement>(null)
+  const [showNovelUploader, setShowNovelUploader] = useState(false)
 
   if (!project) return null
   const script = project.script
@@ -326,15 +328,28 @@ export function ScriptPhase() {
         ...p.script,
         characters: [
           ...p.script.characters,
-          {
-            id: newId,
-            name: `角色 ${p.script.characters.length + 1}`,
-            description: '',
-            appearance: '',
-          },
+          { id: newId, name: `角色 ${p.script.characters.length + 1}`, description: '', appearance: '' },
         ],
       },
     }))
+  }
+
+  // ---------- Novel Upload → Script ----------
+  const handleNovelScriptGenerated = async (rawContent: string) => {
+    try {
+      const parsed = extractJSON(rawContent)
+      const { scenes, characters } = normalizeAIResponse(parsed)
+      updateProject(p => ({
+        ...p,
+        script: { ...p.script, scenes, characters },
+      }))
+      setShowNovelUploader(false)
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 80)
+    } catch (e) {
+      alert(`剧本解析失败：${e instanceof Error ? e.message : '格式异常'}`)
+    }
   }
 
   // ============================================================
@@ -347,14 +362,42 @@ export function ScriptPhase() {
       {/* ============ Top: Input + Overview ============ */}
       <section className="grid grid-cols-12 gap-10">
         <div className="col-span-12 lg:col-span-7">
-          <StoryInput
-            value={script.story}
-            onChange={handleStoryChange}
-            onGenerate={handleGenerate}
-            loading={loading}
-            error={error}
-            hasGenerated={hasScenes || hasCharacters}
-          />
+          {/* Mode toggle */}
+          <div className="flex items-center gap-2 mb-4">
+            <button
+              onClick={() => setShowNovelUploader(false)}
+              className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+                !showNovelUploader
+                  ? 'text-amber-500 border border-amber-500/30 bg-amber-500/5'
+                  : 'text-paper-500 hover:text-paper-300'
+              }`}
+            >
+              手动输入
+            </button>
+            <button
+              onClick={() => setShowNovelUploader(true)}
+              className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+                showNovelUploader
+                  ? 'text-amber-500 border border-amber-500/30 bg-amber-500/5'
+                  : 'text-paper-500 hover:text-paper-300'
+              }`}
+            >
+              上传小说
+            </button>
+          </div>
+
+          {showNovelUploader ? (
+            <NovelUploader onScriptGenerated={handleNovelScriptGenerated} />
+          ) : (
+            <StoryInput
+              value={script.story}
+              onChange={handleStoryChange}
+              onGenerate={handleGenerate}
+              loading={loading}
+              error={error}
+              hasGenerated={hasScenes || hasCharacters}
+            />
+          )}
         </div>
 
         {/* Right: stats + completion */}

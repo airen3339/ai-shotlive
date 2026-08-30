@@ -3,7 +3,7 @@
  *   左侧灯条状结构，每一格都是一个 Phase 章节，
  *   带有完成度标记和编号。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   FileText,
   Images,
@@ -13,13 +13,15 @@ import {
   ChevronLeft,
   Check,
   Lock,
+  LogOut,
 } from 'lucide-react'
 import type { Phase } from '@/types'
 import { useProject } from '@/shared/contexts/ProjectContext'
 import { workflowEngine } from '@/services/workflow'
-import { ApiKeyModal } from '@/shared/components/ApiKeyModal'
-import { hasAnyApiKey } from '@/config'
+import { SettingsPanel } from '@/components/SettingsPanel'
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner'
+import { providerManager } from '@/providers'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface PhaseMeta {
   id: Phase
@@ -41,11 +43,16 @@ export function Sidebar() {
     project, currentPhase, setPhase,
     closeProject, isSaving,
   } = useProject()
-  const [apiOpen, setApiOpen] = useState(false)
-  const [apiConfigured, setApiConfigured] = useState(hasAnyApiKey())
+  const { logout } = useAuth()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [providersReady, setProvidersReady] = useState(true)
+
+  // Check if providers are configured
+  useEffect(() => {
+    setProvidersReady(providerManager.isReady())
+  }, [])
 
   if (!project) return null
-
   return (
     <aside className="w-72 shrink-0 border-r flex flex-col"
            style={{ borderColor: 'var(--color-ink-600)', background: 'var(--color-ink-900)' }}>
@@ -179,15 +186,24 @@ export function Sidebar() {
       <div className="border-t px-6 py-4 flex items-center justify-between"
            style={{ borderColor: 'var(--color-ink-600)' }}>
         <button
-          onClick={() => setApiOpen(true)}
+          onClick={() => setSettingsOpen(true)}
           className="flex items-center gap-2 mono text-[0.65rem] tracking-[0.18em] uppercase transition-colors hover:text-amber-glow"
-          style={{ color: apiConfigured ? 'var(--color-paper-400)' : 'var(--color-crimson-mark)' }}
+          style={{ color: providersReady ? 'var(--color-paper-400)' : 'var(--color-crimson-mark)' }}
         >
           <Settings size={13} strokeWidth={1.4} />
-          API · {apiConfigured ? '已配置' : '未配置'}
+          模型配置
         </button>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={logout}
+            className="flex items-center gap-1.5 mono text-[0.65rem] tracking-[0.18em] uppercase transition-colors hover:text-amber-glow"
+            style={{ color: 'var(--color-paper-500)' }}
+            title="退出登录"
+          >
+            <LogOut size={13} strokeWidth={1.4} />
+            退出
+          </button>
           {isSaving ? (
             <LoadingSpinner size="sm" label="存档中" />
           ) : (
@@ -202,13 +218,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <ApiKeyModal
-        open={apiOpen}
-        onClose={() => {
-          setApiOpen(false)
-          setApiConfigured(hasAnyApiKey())
-        }}
-      />
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </aside>
   )
 }

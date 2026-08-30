@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { useProject } from '@/shared/contexts/ProjectContext'
 import { useImageAI, useVideoAI } from '@/shared/hooks/useAI'
-import { hasAnyApiKey } from '@/config'
+import { providerManager } from '@/providers'
 import { PhaseHeader } from '@/shared/components/PhaseHeader'
 import { LoadingSpinner } from '@/shared/components/LoadingSpinner'
 import type { Project, Scene, Shot, KeyframeData } from '@/types'
@@ -111,9 +111,7 @@ export function DirectorPhase() {
   const generateKeyframe = useCallback(
     async (entry: ShotEntry) => {
       if (!project) return
-      if (!hasAnyApiKey()) {
-        throw new Error('请先在「模型配置」中配置 API Key')
-      }
+      try { providerManager.getImageService() } catch { throw new Error('请先在「模型配置」中配置图像模型') }
       const prompt = buildShotPrompt(project, entry.scene, entry.shot)
       const result = await imageAI.generate(prompt, {
         width: 1280,
@@ -128,9 +126,7 @@ export function DirectorPhase() {
   const generateVideo = useCallback(
     async (entry: ShotEntry) => {
       if (!project) return
-      if (!hasAnyApiKey()) {
-        throw new Error('请先在「模型配置」中配置 API Key')
-      }
+      try { providerManager.getVideoService() } catch { throw new Error('请先在「模型配置」中配置视频模型') }
       const keyframe = project.director.keyframes[entry.shot.id]
       if (!keyframe?.startFrame) {
         throw new Error('请先生成首帧')
@@ -148,7 +144,7 @@ export function DirectorPhase() {
         })
         writeKeyframe(entry.shot.id, {
           videoTaskId: result.taskId,
-          videoStatus: result.status.state,
+          videoStatus: (result.status as any),
         })
       } catch (e) {
         writeKeyframe(entry.shot.id, { videoStatus: 'failed' })
@@ -206,6 +202,10 @@ export function DirectorPhase() {
     const tick = async () => {
       const cur = projectRef.current
       if (!cur || cancelled) return
+
+      // 反馈回路检查：Provider 不可用则跳过本轮
+      if (!providerManager.isReady()) return
+
       const pendingTasks = Object.entries(cur.director.keyframes)
         .filter(
           ([, kf]) =>
@@ -230,7 +230,11 @@ export function DirectorPhase() {
             }
             writeKeyframe(shotId, patch)
           } catch (e) {
-            // Network error during polling — leave state untouched, will retry next tick
+            // 区分：provider 未配置 → 标记失败；网络错误 → 下次重试
+            const msg = e instanceof Error ? e.message : ''
+            if (msg.includes('未配置') || msg.includes('不可用')) {
+              writeKeyframe(shotId, { videoStatus: 'failed' })
+            }
             console.warn('[Director] poll error', e)
           }
         }),
@@ -261,7 +265,7 @@ export function DirectorPhase() {
     return s === 'pending' || s === 'processing'
   }).length
 
-  const noApiKey = !hasAnyApiKey()
+  const providerNotReady = !providerManager.isReady()
 
   // Group entries by scene for render
   const grouped = project.script.scenes.map((scene, sIdx) => ({
@@ -329,7 +333,7 @@ export function DirectorPhase() {
                     batchRunning ||
                     totalShots === 0 ||
                     withFrame === totalShots ||
-                    noApiKey
+                    providerNotReady
                   }
                   className="btn-ghost flex items-center gap-2"
                 >
@@ -352,7 +356,7 @@ export function DirectorPhase() {
           </div>
 
           {/* Notices */}
-          {noApiKey && (
+          {providerNotReady && (
             <div
               className="px-7 py-3 flex items-center gap-2.5 border-t mono text-[0.7rem] tracking-[0.12em] normal-case"
               style={{
